@@ -1,0 +1,102 @@
+# Checkov check_id → NIST SP 800-53 Rev 5 control IDs
+# Extend this table as you tune the gate for your baseline (Moderate/High).
+
+CKV_AWS_18:
+  controls: [AU-2, AU-3, AU-12]
+  family: AU
+  intent: CloudTrail must capture management and data events for accountability.
+
+CKV_AWS_19:
+  controls: [AU-2, AU-9]
+  family: AU
+  intent: CloudTrail logs require integrity protection via encryption and access controls.
+
+CKV_AWS_21:
+  controls: [SC-28, SC-13]
+  family: SC
+  intent: S3 buckets must encrypt data at rest using approved mechanisms.
+
+CKV_AWS_145:
+  controls: [SC-28, SC-13]
+  family: SC
+  intent: S3 buckets must block public access to prevent unauthorized disclosure.
+
+CKV_AWS_20:
+  controls: [AC-3, SC-7]
+  family: AC
+  intent: S3 buckets must not allow public read/write ACLs or policies.
+
+CKV_AWS_23:
+  controls: [SC-7, AC-4]
+  family: SC
+  intent: Security groups must not expose administrative ports to the entire internet.
+
+CKV_AWS_24:
+  controls: [SC-7, AC-4]
+  family: SC
+  intent: Security groups must not expose SSH (22) to 0.0.0.0/0.
+
+CKV_AWS_25:
+  controls: [SC-7, AC-4]
+  family: SC
+  intent: Security groups must not expose RDP (3389) to 0.0.0.0/0.
+
+CKV_AWS_26:
+  controls: [SC-28, SC-13]
+  family: SC
+  intent: EBS volumes must use encryption at rest.
+
+CKV_AWS_27:
+  controls: [SC-28, SC-13]
+  family: SC
+  intent: SQS queues must encrypt messages at rest.
+
+CKV_AWS_39:
+  controls: [SC-28, SC-13]
+  family: SC
+  intent: RDS instances must enable storage encryption.
+
+CKV_AWS_41:
+  controls: [SC-8, SC-13]
+  family: SC
+  intent: RDS instances must require TLS for connections in transit.
+
+CKV_AWS_79:
+  controls: [SC-28, SC-13]
+  family: SC
+  intent: EBS snapshots must be encrypted.
+
+CKV_AWS_117:
+  controls: [AC-6, AC-2]
+  family: AC
+  intent: IAM policies attached to users must follow least privilege.
+
+CKV_AWS_109:
+  controls: [AC-6, AC-3]
+  family: AC
+  intent: IAM policies must not grant full administrative privileges via wildcards.
+
+CKV_AWS_158:
+  controls: [AU-2, AU-3]
+  family: AU
+  intent: CloudWatch log groups must define retention to bound audit record lifecycle.
+
+CKV_AWS_130:
+  controls: [SC-13, SC-28]
+  family: SC
+  intent: IAM policies must not allow decryption without tight KMS constraints.
+
+CKV_AWS_144:
+  controls: [SC-7, AC-4]
+  family: SC
+  intent: Security groups must not allow ingress from 0.0.0.0/0 to all ports.
+
+CKV_AWS_8:
+  controls: [CM-2, CM-6]
+  family: CM
+  intent: Launch configurations must not embed credentials in user data.
+
+CKV_AWS_126:
+  controls: [SC-13, SC-28]
+  family: SC
+  intent: RDS instances must use a customer-managed KMS key when encryption is required.
