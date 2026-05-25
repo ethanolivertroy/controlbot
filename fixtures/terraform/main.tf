@@ -49,3 +49,14 @@ resource "aws_db_instance" "app_db" {
   publicly_accessible  = true
   storage_encrypted    = false
 }
+
+# Demo PR change — adds another insecure SG rule for Compliance Bot inline review
+resource "aws_security_group_rule" "demo_https_open" {
+  type              = "ingress"
+  from_port         = 443
+  to_port           = 443
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = aws_security_group.app.id
+}
+
