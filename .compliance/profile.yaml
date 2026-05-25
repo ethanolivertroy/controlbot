@@ -1,0 +1,36 @@
+# Compliance Bot profile — repo-level baseline and review behavior.
+# Bugbot parity: inline PR comments, inherited controls, merge gates.
+
+name: compliance-bot
+
+# fedramp-moderate | fedramp-high | nist-800-53-rev5-high | custom
+baseline: fedramp-moderate
+
+# Directories scanned when no PR diff is available (push / manual).
+scan_paths:
+  - fixtures/terraform
+
+# Controls fully inherited from the cloud provider boundary — do not flag or block.
+# Document these in your SSP; the bot skips findings mapped ONLY to these controls.
+inherited_controls:
+  - PE-1
+  - PE-2
+  - PE-3
+  - PS-1
+
+# Post inline review comments on specific lines (Bugbot-style).
+inline_comments: true
+
+# Severity levels that fail the check and request changes on PRs.
+block_on_severity:
+  - HIGH
+  - CRITICAL
+
+# Also block when unmapped Checkov findings exceed this count (mapping debt).
+block_on_unmapped_count: 5
+
+# Max inline comments per PR review (GitHub API practical limit).
+max_inline_comments: 30
+
+# Bot display name in review summaries.
+bot_name: Compliance Bot

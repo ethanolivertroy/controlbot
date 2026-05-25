@@ -1,102 +1,182 @@
 # Checkov check_id → NIST SP 800-53 Rev 5 control IDs
-# Extend this table as you tune the gate for your baseline (Moderate/High).
+# severity: HIGH | MEDIUM | LOW (overrides Checkov when null)
+
+CKV_AWS_8:
+  controls: [CM-2, CM-6]
+  family: CM
+  severity: HIGH
+  intent: Launch configurations must not embed credentials in user data.
+
+CKV_AWS_16:
+  controls: [SC-28, SC-13]
+  family: SC
+  severity: HIGH
+  intent: RDS instances must encrypt storage at rest.
+
+CKV_AWS_17:
+  controls: [SC-7, AC-4]
+  family: SC
+  severity: HIGH
+  intent: RDS instances must not be publicly accessible.
 
 CKV_AWS_18:
   controls: [AU-2, AU-3, AU-12]
   family: AU
+  severity: HIGH
   intent: CloudTrail must capture management and data events for accountability.
 
 CKV_AWS_19:
   controls: [AU-2, AU-9]
   family: AU
+  severity: HIGH
   intent: CloudTrail logs require integrity protection via encryption and access controls.
-
-CKV_AWS_21:
-  controls: [SC-28, SC-13]
-  family: SC
-  intent: S3 buckets must encrypt data at rest using approved mechanisms.
-
-CKV_AWS_145:
-  controls: [SC-28, SC-13]
-  family: SC
-  intent: S3 buckets must block public access to prevent unauthorized disclosure.
 
 CKV_AWS_20:
   controls: [AC-3, SC-7]
   family: AC
+  severity: HIGH
   intent: S3 buckets must not allow public read/write ACLs or policies.
 
-CKV_AWS_23:
-  controls: [SC-7, AC-4]
+CKV_AWS_21:
+  controls: [SC-28, SC-13]
   family: SC
-  intent: Security groups must not expose administrative ports to the entire internet.
+  severity: HIGH
+  intent: S3 buckets must encrypt data at rest using approved mechanisms.
+
+CKV_AWS_23:
+  controls: [CM-6, SC-7]
+  family: CM
+  severity: MEDIUM
+  intent: Security group rules must include descriptions for configuration accountability.
 
 CKV_AWS_24:
   controls: [SC-7, AC-4]
   family: SC
+  severity: HIGH
   intent: Security groups must not expose SSH (22) to 0.0.0.0/0.
 
 CKV_AWS_25:
   controls: [SC-7, AC-4]
   family: SC
+  severity: HIGH
   intent: Security groups must not expose RDP (3389) to 0.0.0.0/0.
 
 CKV_AWS_26:
   controls: [SC-28, SC-13]
   family: SC
+  severity: HIGH
   intent: EBS volumes must use encryption at rest.
 
 CKV_AWS_27:
   controls: [SC-28, SC-13]
   family: SC
+  severity: MEDIUM
   intent: SQS queues must encrypt messages at rest.
 
 CKV_AWS_39:
   controls: [SC-28, SC-13]
   family: SC
+  severity: HIGH
   intent: RDS instances must enable storage encryption.
 
 CKV_AWS_41:
   controls: [SC-8, SC-13]
   family: SC
+  severity: HIGH
   intent: RDS instances must require TLS for connections in transit.
 
 CKV_AWS_79:
   controls: [SC-28, SC-13]
   family: SC
+  severity: HIGH
   intent: EBS snapshots must be encrypted.
-
-CKV_AWS_117:
-  controls: [AC-6, AC-2]
-  family: AC
-  intent: IAM policies attached to users must follow least privilege.
 
 CKV_AWS_109:
   controls: [AC-6, AC-3]
   family: AC
+  severity: HIGH
   intent: IAM policies must not grant full administrative privileges via wildcards.
 
-CKV_AWS_158:
+CKV_AWS_117:
+  controls: [AC-6, AC-2]
+  family: AC
+  severity: HIGH
+  intent: IAM policies attached to users must follow least privilege.
+
+CKV_AWS_118:
+  controls: [CM-6, IA-5]
+  family: CM
+  severity: HIGH
+  intent: RDS must not use default or hardcoded credentials in Terraform.
+
+CKV_AWS_126:
+  controls: [SC-13, SC-28]
+  family: SC
+  severity: HIGH
+  intent: RDS instances must use a customer-managed KMS key when encryption is required.
+
+CKV_AWS_129:
   controls: [AU-2, AU-3]
   family: AU
-  intent: CloudWatch log groups must define retention to bound audit record lifecycle.
+  severity: MEDIUM
+  intent: RDS must publish database logs to CloudWatch for auditability.
 
 CKV_AWS_130:
   controls: [SC-13, SC-28]
   family: SC
+  severity: HIGH
   intent: IAM policies must not allow decryption without tight KMS constraints.
 
 CKV_AWS_144:
   controls: [SC-7, AC-4]
   family: SC
+  severity: HIGH
   intent: Security groups must not allow ingress from 0.0.0.0/0 to all ports.
 
-CKV_AWS_8:
-  controls: [CM-2, CM-6]
-  family: CM
-  intent: Launch configurations must not embed credentials in user data.
-
-CKV_AWS_126:
-  controls: [SC-13, SC-28]
+CKV_AWS_145:
+  controls: [SC-28, SC-13]
   family: SC
-  intent: RDS instances must use a customer-managed KMS key when encryption is required.
+  severity: HIGH
+  intent: S3 buckets must block public access to prevent unauthorized disclosure.
+
+CKV_AWS_157:
+  controls: [CM-7, SC-7]
+  family: CM
+  severity: MEDIUM
+  intent: RDS should use Multi-AZ for availability per baseline hardening.
+
+CKV_AWS_158:
+  controls: [AU-2, AU-3]
+  family: AU
+  severity: MEDIUM
+  intent: CloudWatch log groups must define retention to bound audit record lifecycle.
+
+CKV_AWS_161:
+  controls: [CM-6, SI-2]
+  family: CM
+  severity: MEDIUM
+  intent: RDS engine version should be current to receive security patches.
+
+CKV_AWS_226:
+  controls: [SC-28, SC-13]
+  family: SC
+  severity: HIGH
+  intent: RDS snapshots must be encrypted.
+
+CKV_AWS_293:
+  controls: [SC-7, AC-4]
+  family: SC
+  severity: HIGH
+  intent: RDS must restrict network exposure via security groups and subnet placement.
+
+CKV_AWS_353:
+  controls: [AU-2, AU-12]
+  family: AU
+  severity: MEDIUM
+  intent: RDS Performance Insights supports monitoring and accountability.
+
+CKV_AWS_382:
+  controls: [SC-7, AC-4]
+  family: SC
+  severity: HIGH
+  intent: Security groups must not allow unrestricted egress when baseline requires egress filtering.

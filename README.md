@@ -1,76 +1,102 @@
-# Terraform NIST Reviewer
+# Terraform NIST Reviewer + Compliance Bot
 
-Scan Terraform with [Checkov](https://www.checkov.io/), map findings to **NIST SP 800-53 Rev 5** controls, and enrich the report with a **Cursor SDK** agent for control intent and remediation guidance.
+Scan Terraform with [Checkov](https://www.checkov.io/), map findings to **NIST SP 800-53 Rev 5** controls, and review PRs **Bugbot-style** with inline comments and merge gates.
 
-## How it works
+## Compliance Bot (Bugbot parity)
 
-```text
-Terraform (.tf)
-    → Checkov (deterministic findings)
-    → NIST mapping table (checkov-to-nist.yaml)
-    → Cursor SDK agent (control intent + HCL fixes)
-    → report.md (+ PR comment in CI)
+On every PR that touches `*.tf`:
+
+1. **Scans** only the changed Terraform (via Checkov)
+2. **Maps** findings → NIST 800-53 controls
+3. **Posts inline review comments** on the exact lines (like Cursor Bugbot)
+4. **Requests changes** when blocking severity findings exist
+5. **Fails the check** so the PR can't merge until resolved
+
+Configure behavior in [`.compliance/profile.yaml`](.compliance/profile.yaml):
+
+```yaml
+baseline: fedramp-moderate
+inherited_controls: [PE-1, PE-2]   # skip — CSP inherited
+block_on_severity: [HIGH, CRITICAL]
+inline_comments: true
 ```
 
-The agent **does not invent findings** — it only analyzes Checkov output and reads Terraform for context.
+## Architecture
+
+```text
+PR diff (*.tf)
+  → Checkov scan
+  → NIST mapping (mappings/checkov-to-nist.yaml)
+  → Compliance Bot (inline comment payload)
+  → GitHub PR review (REQUEST_CHANGES + line comments)
+  → Optional: Cursor SDK agent (full report in artifact)
+```
 
 ## Quick start (local)
 
 ```bash
-cd terraform-nist-reviewer
 npm install
-pip install checkov   # if not already installed
+pip install checkov
 
-# 1. Scan sample fixture (intentionally weak config)
 npm run scan
-
-# 2a. Scan-only summary (no API key needed)
 npm run review -- --scan-only
+npm run compliance-bot
 
-# 2b. Full NIST report (requires Cursor API key)
-export CURSOR_API_KEY="cursor_..."
-npm run review
-cat report.md
+# Inspect Bugbot-style payload
+cat review-payload.json | head -80
 ```
 
-Get an API key from [Cursor Dashboard → Integrations](https://cursor.com/dashboard/integrations).
+Full agent report:
 
-## GitHub Actions
+```bash
+export CURSOR_API_KEY="cursor_..."
+npm run review
+```
 
-1. Push this repo to GitHub.
-2. Add repository secret: **`CURSOR_API_KEY`**
-3. Workflow runs on:
-   - pushes to `main` (fixture/mapping changes)
-   - PRs that touch `*.tf`
-   - manual `workflow_dispatch`
+## Example Terraform
 
-Without the secret, CI still runs Checkov and uploads a **scan-only** summary.
+[`fixtures/terraform/main.tf`](fixtures/terraform/main.tf) — intentionally weak config (open SG, unencrypted RDS, etc.) for demo scans.
 
-Artifacts: `findings.json`, `report.md`. PRs get a comment with the report.
+## GitHub setup
+
+1. Push to GitHub
+2. Add secret **`CURSOR_API_KEY`** (optional — enables full agent report; inline bot works without it)
+3. Open a PR that changes `fixtures/terraform/main.tf`
+4. Compliance Bot posts inline NIST comments and blocks merge on HIGH findings
+
+Workflow: [`.github/workflows/compliance-bot.yml`](.github/workflows/compliance-bot.yml)
+
+## Scripts
+
+| Command | Purpose |
+|---------|---------|
+| `npm run scan` | Checkov → `findings.json` |
+| `npm run review` | Agent or scan-only → `report.md` |
+| `npm run compliance-bot` | Build `review-payload.json`, exit 2 if blocking |
+| `npm run post-review` | Post payload to GitHub (CI only) |
+
+Simulate a PR review locally:
+
+```bash
+npm run scan
+npm run compliance-bot -- --changed-file fixtures/terraform/main.tf
+```
 
 ## Customize
 
 | File | Purpose |
 |------|---------|
-| `mappings/checkov-to-nist.yaml` | Map Checkov `check_id` → NIST controls + intent |
-| `fixtures/terraform/` | Demo Terraform with known misconfigs |
-| `src/review.ts` | CLI — scan enrichment + Cursor agent |
-| `.github/workflows/iac-nist.yml` | CI pipeline |
-
-Scan a different directory:
-
-```bash
-npm run scan -- path/to/terraform findings.json
-npm run review -- --scan-dir path/to/terraform
-```
+| `.compliance/profile.yaml` | Baseline, inheritance, merge gate severity |
+| `mappings/checkov-to-nist.yaml` | Checkov rule → NIST control + severity |
+| `fixtures/terraform/` | Demo Terraform |
 
 ## Exit codes
 
 | Code | Meaning |
 |------|---------|
-| `0` | Success |
-| `1` | SDK startup failure (auth, config, network) |
-| `2` | Run failed or HIGH severity findings (scan-only mode) |
+| `0` | Pass |
+| `1` | Tooling error |
+| `2` | Blocking compliance findings (`compliance-bot`) |
 
 ## License
 

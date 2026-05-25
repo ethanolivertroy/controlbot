@@ -7,11 +7,14 @@
   "scripts": {
     "scan": "bash scripts/scan.sh",
     "review": "tsx src/review.ts",
-    "test:local": "npm run scan && npm run review",
+    "compliance-bot": "tsx src/compliance-bot.ts",
+    "post-review": "tsx src/post-github-review.ts",
+    "test:local": "npm run scan && npm run review && npm run compliance-bot",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.13",
+    "@octokit/rest": "^22.0.0",
     "yaml": "^2.8.1"
   },
   "devDependencies": {

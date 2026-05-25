@@ -1,0 +1,128 @@
+name: Compliance Bot
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "fixtures/**"
+      - "mappings/**"
+      - "src/**"
+      - "scripts/**"
+      - ".compliance/**"
+      - ".github/workflows/compliance-bot.yml"
+  pull_request:
+    paths:
+      - "**/*.tf"
+      - "fixtures/**"
+      - "mappings/**"
+      - "src/**"
+      - "scripts/**"
+      - ".compliance/**"
+      - ".github/workflows/compliance-bot.yml"
+  workflow_dispatch:
+    inputs:
+      terraform_dir:
+        description: Terraform directory to scan
+        required: false
+        default: fixtures/terraform
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  compliance-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed Terraform files
+        id: changed
+        uses: tj-actions/changed-files@v46
+        with:
+          files: |
+            **/*.tf
+
+      - name: Resolve scan directory
+        id: scan
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ -n "${{ steps.changed.outputs.all_changed_files }}" ]; then
+            DIR=$(echo "${{ steps.changed.outputs.all_changed_files }}" | awk '{print $1}' | xargs dirname)
+            echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+            echo "changed=${{ steps.changed.outputs.all_changed_files }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "dir=${{ github.event.inputs.terraform_dir || 'fixtures/terraform' }}" >> "$GITHUB_OUTPUT"
+            echo "changed=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Checkov
+        run: pip install checkov
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Scan Terraform
+        run: npm run scan -- "${{ steps.scan.outputs.dir }}" findings.json
+
+      - name: Enrich with Cursor agent
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: |
+          if [ -z "$CURSOR_API_KEY" ]; then
+            npm run review -- --scan-dir "${{ steps.scan.outputs.dir }}" --scan-only
+          else
+            npm run review -- --scan-dir "${{ steps.scan.outputs.dir }}"
+          fi
+
+      - name: Build Compliance Bot review
+        id: bot
+        run: |
+          ARGS="--scan-dir ${{ steps.scan.outputs.dir }}"
+          if [ -n "${{ steps.scan.outputs.changed }}" ]; then
+            for f in ${{ steps.scan.outputs.changed }}; do
+              ARGS="$ARGS --changed-file $f"
+            done
+          fi
+          npm run compliance-bot -- $ARGS || echo "blocked=true" >> "$GITHUB_ENV"
+        continue-on-error: true
+
+      - name: Post inline PR review
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REVIEW_PAYLOAD: review-payload.json
+        run: npm run post-review
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nist-compliance-report
+          path: |
+            findings.json
+            report.md
+            review-payload.json
+
+      - name: Merge gate
+        if: env.blocked == 'true'
+        run: |
+          echo "::error::Compliance Bot blocked merge — resolve inline review comments."
+          exit 1

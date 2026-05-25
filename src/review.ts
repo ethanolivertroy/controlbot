@@ -8,6 +8,7 @@ import {
   loadCheckovFindings,
   loadNistMappings,
 } from "./lib.js";
+import { loadComplianceProfile } from "./profile.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -79,9 +80,10 @@ async function writeScanOnlyReport(
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  const profile = await loadComplianceProfile();
   const mappings = await loadNistMappings();
   const checks = await loadCheckovFindings(args.findingsPath);
-  const findings = enrichFindings(checks, mappings);
+  const findings = enrichFindings(checks, mappings, profile, args.scanDir);
 
   console.log(`Loaded ${findings.length} failed check(s) from ${args.findingsPath}`);
 
@@ -97,7 +99,7 @@ async function main() {
     process.exit(shouldFail ? 2 : 0);
   }
 
-  const prompt = buildAgentPrompt(findings, args.scanDir);
+  const prompt = buildAgentPrompt(findings, args.scanDir, profile);
 
   try {
     const result = await Agent.prompt(prompt, {
