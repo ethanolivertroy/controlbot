@@ -8,7 +8,7 @@ import {
   loadCheckovFindings,
   loadNistMappings,
 } from "./lib.js";
-import { loadComplianceProfile } from "./profile.js";
+import { loadControlBotProfile } from "./profile.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -80,7 +80,7 @@ async function writeScanOnlyReport(
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const profile = await loadComplianceProfile();
+  const profile = await loadControlBotProfile();
   const mappings = await loadNistMappings();
   const checks = await loadCheckovFindings(args.findingsPath);
   const findings = enrichFindings(checks, mappings, profile, args.scanDir);

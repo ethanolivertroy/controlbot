@@ -136,7 +136,7 @@ async function main() {
       owner,
       repo,
       issue_number: pullNumber,
-      body: `## ${payload.stats.total} compliance finding(s)\n\n${payload.body}`,
+      body: `## ${payload.stats.total} control finding(s)\n\n${payload.body}`,
     });
     console.log("Fell back to issue comment (no diff lines matched).");
   }

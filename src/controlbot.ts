@@ -8,7 +8,7 @@ import {
   loadCheckovFindings,
   loadNistMappings,
 } from "./lib.js";
-import { loadComplianceProfile } from "./profile.js";
+import { loadControlBotProfile } from "./profile.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -34,7 +34,7 @@ function parseArgs(argv: string[]) {
       const list = argv[++i].split(",").map((f) => f.trim()).filter(Boolean);
       args.changedFiles.push(...list);
     } else if (arg === "--help") {
-      console.log(`Usage: npm run compliance-bot -- [options]
+      console.log(`Usage: npm run controlbot -- [options]
 
 Build Bugbot-style PR review payload with inline NIST comments.
 
@@ -54,7 +54,7 @@ Options:
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const profile = await loadComplianceProfile();
+  const profile = await loadControlBotProfile();
   const mappings = await loadNistMappings();
   const checks = await loadCheckovFindings(args.findingsPath);
 

@@ -1,15 +1,15 @@
 {
-  "name": "terraform-nist-reviewer",
-  "version": "0.1.0",
+  "name": "controlbot",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Scan Terraform with Checkov and enrich findings with NIST 800-53 control mapping via Cursor SDK",
+  "description": "ControlBot — Bugbot-style inline compliance review for infrastructure-as-code (NIST 800-53, Cursor SDK)",
   "scripts": {
     "scan": "bash scripts/scan.sh",
     "review": "tsx src/review.ts",
-    "compliance-bot": "tsx src/compliance-bot.ts",
+    "controlbot": "tsx src/controlbot.ts",
     "post-review": "tsx src/post-github-review.ts",
-    "test:local": "npm run scan && npm run review && npm run compliance-bot",
+    "test:local": "npm run scan && npm run review && npm run controlbot",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

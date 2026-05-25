@@ -1,4 +1,4 @@
-name: Compliance Bot
+name: ControlBot
 
 on:
   push:
@@ -8,8 +8,8 @@ on:
       - "mappings/**"
       - "src/**"
       - "scripts/**"
-      - ".compliance/**"
-      - ".github/workflows/compliance-bot.yml"
+      - ".controlbot/**"
+      - ".github/workflows/controlbot.yml"
   pull_request:
     paths:
       - "**/*.tf"
@@ -17,8 +17,8 @@ on:
       - "mappings/**"
       - "src/**"
       - "scripts/**"
-      - ".compliance/**"
-      - ".github/workflows/compliance-bot.yml"
+      - ".controlbot/**"
+      - ".github/workflows/controlbot.yml"
   workflow_dispatch:
     inputs:
       terraform_dir:
@@ -31,7 +31,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  compliance-bot:
+  controlbot:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -89,7 +89,7 @@ jobs:
             npm run review -- --scan-dir "${{ steps.scan.outputs.dir }}"
           fi
 
-      - name: Build Compliance Bot review
+      - name: Build ControlBot review
         id: bot
         run: |
           ARGS="--scan-dir ${{ steps.scan.outputs.dir }}"
@@ -98,7 +98,7 @@ jobs:
               ARGS="$ARGS --changed-file $f"
             done
           fi
-          npm run compliance-bot -- $ARGS || echo "blocked=true" >> "$GITHUB_ENV"
+          npm run controlbot -- $ARGS || echo "blocked=true" >> "$GITHUB_ENV"
         continue-on-error: true
 
       - name: Post inline PR review
@@ -116,7 +116,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: nist-compliance-report
+          name: controlbot-report
           path: |
             findings.json
             report.md
@@ -125,5 +125,5 @@ jobs:
       - name: Merge gate
         if: env.blocked == 'true'
         run: |
-          echo "::error::Compliance Bot blocked merge — resolve inline review comments."
+          echo "::error::ControlBot blocked merge — resolve inline review comments."
           exit 1

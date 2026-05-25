@@ -1,38 +1,32 @@
-# Terraform NIST Reviewer + Compliance Bot
+# ControlBot
 
-Scan Terraform with [Checkov](https://www.checkov.io/), map findings to **NIST SP 800-53 Rev 5** controls, and review PRs **Bugbot-style** with inline comments and merge gates.
+**Bugbot for compliance on infrastructure code.**
 
-## Compliance Bot (Bugbot parity)
+ControlBot reviews Terraform PRs like Cursor Bugbot reviews code — inline comments on the exact lines, NIST 800-53 control mapping, control intent, and a merge gate when findings block your baseline.
 
-On every PR that touches `*.tf`:
+Built on [Checkov](https://www.checkov.io/) (deterministic facts) + [Cursor SDK](https://cursor.com/docs/sdk) (assessor-grade narratives).
 
-1. **Scans** only the changed Terraform (via Checkov)
-2. **Maps** findings → NIST 800-53 controls
-3. **Posts inline review comments** on the exact lines (like Cursor Bugbot)
-4. **Requests changes** when blocking severity findings exist
-5. **Fails the check** so the PR can't merge until resolved
+> **Today:** IaC → controls → PR reviews  
+> **Tomorrow:** SSP narratives, POA&M seeds, risk scoring, audit packages — one bot, growing into full GRC
 
-Configure behavior in [`.compliance/profile.yaml`](.compliance/profile.yaml):
+## Demo
 
-```yaml
-baseline: fedramp-moderate
-inherited_controls: [PE-1, PE-2]   # skip — CSP inherited
-block_on_severity: [HIGH, CRITICAL]
-inline_comments: true
-```
+**Repo:** https://github.com/ethanolivertroy/controlbot  
+**Sample PR:** https://github.com/ethanolivertroy/controlbot/pull/1
 
-## Architecture
+## How it works
 
 ```text
-PR diff (*.tf)
-  → Checkov scan
-  → NIST mapping (mappings/checkov-to-nist.yaml)
-  → Compliance Bot (inline comment payload)
-  → GitHub PR review (REQUEST_CHANGES + line comments)
-  → Optional: Cursor SDK agent (full report in artifact)
+PR with Terraform
+  → Checkov (deterministic scan)
+  → NIST 800-53 mapping
+  → ControlBot (inline PR comments + merge gate)
+  → Optional: Cursor agent (full report artifact)
 ```
 
-## Quick start (local)
+The agent **never invents findings** — it enriches Checkov output with control intent and remediation language.
+
+## Quick start
 
 ```bash
 npm install
@@ -40,55 +34,50 @@ pip install checkov
 
 npm run scan
 npm run review -- --scan-only
-npm run compliance-bot
+npm run controlbot
 
-# Inspect Bugbot-style payload
-cat review-payload.json | head -80
+cat review-payload.json   # Bugbot-style inline comment payload
 ```
 
-Full agent report:
+Full agent report (optional):
 
 ```bash
 export CURSOR_API_KEY="cursor_..."
 npm run review
 ```
 
+## GitHub Actions
+
+1. Add **`CURSOR_API_KEY`** secret (optional — inline bot works without it)
+2. PRs touching `*.tf` trigger [`.github/workflows/controlbot.yml`](.github/workflows/controlbot.yml)
+3. ControlBot posts inline NIST comments and fails the check on blocking findings
+
+## Configure
+
+[`.controlbot/profile.yaml`](.controlbot/profile.yaml):
+
+```yaml
+baseline: fedramp-moderate
+inherited_controls: [PE-1, PE-2]   # CSP-inherited — skip
+block_on_severity: [HIGH, CRITICAL]
+inline_comments: true
+bot_name: ControlBot
+```
+
+Extend [`mappings/checkov-to-nist.yaml`](mappings/checkov-to-nist.yaml) for your rule → control mappings.
+
 ## Example Terraform
 
-[`fixtures/terraform/main.tf`](fixtures/terraform/main.tf) — intentionally weak config (open SG, unencrypted RDS, etc.) for demo scans.
+[`fixtures/terraform/main.tf`](fixtures/terraform/main.tf) — intentionally weak config for demos.
 
-## GitHub setup
-
-1. Push to GitHub
-2. Add secret **`CURSOR_API_KEY`** (optional — enables full agent report; inline bot works without it)
-3. Open a PR that changes `fixtures/terraform/main.tf`
-4. Compliance Bot posts inline NIST comments and blocks merge on HIGH findings
-
-Workflow: [`.github/workflows/compliance-bot.yml`](.github/workflows/compliance-bot.yml)
-
-## Scripts
+## Commands
 
 | Command | Purpose |
 |---------|---------|
 | `npm run scan` | Checkov → `findings.json` |
 | `npm run review` | Agent or scan-only → `report.md` |
-| `npm run compliance-bot` | Build `review-payload.json`, exit 2 if blocking |
-| `npm run post-review` | Post payload to GitHub (CI only) |
-
-Simulate a PR review locally:
-
-```bash
-npm run scan
-npm run compliance-bot -- --changed-file fixtures/terraform/main.tf
-```
-
-## Customize
-
-| File | Purpose |
-|------|---------|
-| `.compliance/profile.yaml` | Baseline, inheritance, merge gate severity |
-| `mappings/checkov-to-nist.yaml` | Checkov rule → NIST control + severity |
-| `fixtures/terraform/` | Demo Terraform |
+| `npm run controlbot` | Build PR review payload, exit 2 if blocking |
+| `npm run post-review` | Post to GitHub (CI) |
 
 ## Exit codes
 
@@ -96,7 +85,7 @@ npm run compliance-bot -- --changed-file fixtures/terraform/main.tf
 |------|---------|
 | `0` | Pass |
 | `1` | Tooling error |
-| `2` | Blocking compliance findings (`compliance-bot`) |
+| `2` | Blocking control findings |
 
 ## License
 

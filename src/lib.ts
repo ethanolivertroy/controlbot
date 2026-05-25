@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { relative, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
-import type { ComplianceProfile } from "./profile.js";
+import type { ControlBotProfile } from "./profile.js";
 import { isFullyInherited } from "./profile.js";
 
 export interface NistMappingEntry {
@@ -109,7 +109,7 @@ export function normalizeRepoPath(check: CheckovFailedCheck): string {
 export function enrichFindings(
   checks: CheckovFailedCheck[],
   mappings: NistMappingTable,
-  profile: ComplianceProfile,
+  profile: ControlBotProfile,
   _scanDir?: string,
 ): EnrichedFinding[] {
   return checks.map((check) => {
@@ -205,7 +205,7 @@ export function buildInlineCommentBody(finding: EnrichedFinding): string {
     finding.checkName ? `**Check:** ${finding.checkName}` : "",
     finding.guideline ? `[Policy reference](${finding.guideline})` : "",
     "",
-    "_Posted by Compliance Bot — deterministic Checkov finding enriched with NIST 800-53 mapping._",
+    "_Posted by ControlBot — deterministic Checkov finding enriched with NIST 800-53 mapping._",
   ]
     .filter(Boolean)
     .join("\n");
@@ -245,7 +245,7 @@ function groupComments(
 
 export function buildReviewPayload(
   findings: EnrichedFinding[],
-  profile: ComplianceProfile,
+  profile: ControlBotProfile,
 ): ReviewPayload {
   const active = findings.filter((f) => !f.inherited);
   const inheritedSkipped = findings.length - active.length;
@@ -293,12 +293,12 @@ export function buildReviewPayload(
       : "",
     "",
     shouldBlock
-      ? "❌ **Merge blocked** — resolve blocking compliance findings or update your compliance profile."
-      : "✅ **No blocking compliance findings** — review inline comments before merge.",
+      ? "❌ **Merge blocked** — resolve blocking control findings or update `.controlbot/profile.yaml`."
+      : "✅ **No blocking control findings** — review inline comments before merge.",
     "",
     `<details><summary>Full report</summary>`,
     "",
-    "Download the \`nist-compliance-report\` artifact for the complete Markdown report.",
+    "Download the `controlbot-report` artifact for the complete Markdown report.",
     "",
     "</details>",
   ]
@@ -328,7 +328,7 @@ export function buildReviewPayload(
 export function buildAgentPrompt(
   findings: EnrichedFinding[],
   scanDir: string,
-  profile: ComplianceProfile,
+  profile: ControlBotProfile,
 ): string {
   const active = findings.filter((f) => !f.inherited);
   const controlSummary = summarizeByControl(active);
