@@ -4,6 +4,10 @@ dist/
 findings.json
 report.md
 review-payload.json
+custom-compliance-results.json
+evidence-facts.json
+poam-seeds.json
+poam-seeds.md
 .env
 .env.*
 !.env.example

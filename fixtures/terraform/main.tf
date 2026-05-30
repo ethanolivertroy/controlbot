@@ -13,10 +13,12 @@ provider "aws" {
 }
 
 # Intentionally weak config for scanner + NIST mapping demo
+# ControlBot CI fixture: keep this resource near its findings for inline review validation.
 resource "aws_s3_bucket" "data_lake" {
   bucket = "demo-nist-reviewer-data-lake"
 }
 
+# ControlBot CI fixture: this block intentionally remains weak for inline review validation.
 resource "aws_security_group" "app" {
   name        = "demo-app-sg"
   description = "Demo app security group"
@@ -38,6 +40,7 @@ resource "aws_security_group" "app" {
   }
 }
 
+# ControlBot CI fixture: this block intentionally remains weak for inline review validation.
 resource "aws_db_instance" "app_db" {
   identifier           = "demo-app-db"
   engine               = "postgres"

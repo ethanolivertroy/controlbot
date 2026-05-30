@@ -29,6 +29,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  issues: write
 
 jobs:
   controlbot:
@@ -45,16 +46,26 @@ jobs:
         with:
           files: |
             **/*.tf
+          separator: "\n"
 
       - name: Resolve scan directory
         id: scan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CHANGED_FILES: ${{ steps.changed.outputs.all_changed_files }}
+          TERRAFORM_DIR: ${{ github.event.inputs.terraform_dir || 'fixtures/terraform' }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ] && [ -n "${{ steps.changed.outputs.all_changed_files }}" ]; then
-            DIR=$(echo "${{ steps.changed.outputs.all_changed_files }}" | awk '{print $1}' | xargs dirname)
-            echo "dir=$DIR" >> "$GITHUB_OUTPUT"
-            echo "changed=${{ steps.changed.outputs.all_changed_files }}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "pull_request" ] && [ -n "$CHANGED_FILES" ]; then
+            FIRST_FILE=$(printf '%s\n' "$CHANGED_FILES" | awk 'NF { print; exit }')
+            DIR=$(dirname "$FIRST_FILE")
+            {
+              echo "dir=$DIR"
+              echo "changed<<CONTROLBOT_CHANGED_FILES"
+              printf '%s\n' "$CHANGED_FILES"
+              echo "CONTROLBOT_CHANGED_FILES"
+            } >> "$GITHUB_OUTPUT"
           else
-            echo "dir=${{ github.event.inputs.terraform_dir || 'fixtures/terraform' }}" >> "$GITHUB_OUTPUT"
+            echo "dir=$TERRAFORM_DIR" >> "$GITHUB_OUTPUT"
             echo "changed=" >> "$GITHUB_OUTPUT"
           fi
 
@@ -76,30 +87,60 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Typecheck and unit tests
+        run: npm run typecheck && npm test
+
       - name: Scan Terraform
-        run: npm run scan -- "${{ steps.scan.outputs.dir }}" findings.json
+        env:
+          SCAN_DIR: ${{ steps.scan.outputs.dir }}
+        run: npm run scan -- "$SCAN_DIR" findings.json
+
+      - name: Extract repo evidence
+        env:
+          SCAN_DIR: ${{ steps.scan.outputs.dir }}
+        run: npm run evidence -- --scan-dir "$SCAN_DIR"
 
       - name: Enrich with Cursor agent
         env:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          SCAN_DIR: ${{ steps.scan.outputs.dir }}
         run: |
           if [ -z "$CURSOR_API_KEY" ]; then
-            npm run review -- --scan-dir "${{ steps.scan.outputs.dir }}" --scan-only
+            npm run review -- --scan-dir "$SCAN_DIR" --scan-only
           else
-            npm run review -- --scan-dir "${{ steps.scan.outputs.dir }}"
+            npm run review -- --scan-dir "$SCAN_DIR"
           fi
 
       - name: Build ControlBot review
         id: bot
+        env:
+          SCAN_DIR: ${{ steps.scan.outputs.dir }}
+          CHANGED_FILES: ${{ steps.scan.outputs.changed }}
         run: |
-          ARGS="--scan-dir ${{ steps.scan.outputs.dir }}"
-          if [ -n "${{ steps.scan.outputs.changed }}" ]; then
-            for f in ${{ steps.scan.outputs.changed }}; do
-              ARGS="$ARGS --changed-file $f"
-            done
+          CONTROLBOT_ARGS=("--scan-dir" "$SCAN_DIR")
+          if [ -n "$CHANGED_FILES" ]; then
+            while IFS= read -r changed_file; do
+              [ -n "$changed_file" ] || continue
+              CONTROLBOT_ARGS+=("--changed-file" "$changed_file")
+            done <<< "$CHANGED_FILES"
           fi
-          npm run controlbot -- $ARGS || echo "blocked=true" >> "$GITHUB_ENV"
+          npm run controlbot -- "${CONTROLBOT_ARGS[@]}" || echo "blocked=true" >> "$GITHUB_ENV"
         continue-on-error: true
+
+      - name: Generate POA&M seeds
+        if: always()
+        env:
+          SCAN_DIR: ${{ steps.scan.outputs.dir }}
+          CHANGED_FILES: ${{ steps.scan.outputs.changed }}
+        run: |
+          POAM_ARGS=("--scan-dir" "$SCAN_DIR")
+          if [ -n "$CHANGED_FILES" ]; then
+            while IFS= read -r changed_file; do
+              [ -n "$changed_file" ] || continue
+              POAM_ARGS+=("--changed-file" "$changed_file")
+            done <<< "$CHANGED_FILES"
+          fi
+          npm run poam -- "${POAM_ARGS[@]}"
 
       - name: Post inline PR review
         if: github.event_name == 'pull_request'
@@ -121,6 +162,10 @@ jobs:
             findings.json
             report.md
             review-payload.json
+            custom-compliance-results.json
+            evidence-facts.json
+            poam-seeds.json
+            poam-seeds.md
 
       - name: Merge gate
         if: env.blocked == 'true'

@@ -1,0 +1,31 @@
+# Shared organization custom compliance baseline.
+# Repos can override a rule by reusing its `id` in .controlbot/checklist.yaml,
+# or disable an inherited rule with `enabled: false`.
+
+pr_compliances:
+  - id: resource-ownership-tags
+    title: "Resource Ownership Tags"
+    compliance_label: true
+    objective: "Terraform-managed AWS resources must identify an owner for operational accountability."
+    success_criteria: "Each managed AWS resource includes an owner tag or inherits one from module/default tag configuration."
+    failure_criteria: "Managed AWS resources are declared without ownership tags and no inherited tagging mechanism is visible."
+    controls: [CM-8]
+    severity: LOW
+
+  - id: approved-aws-regions
+    title: "Approved AWS Regions"
+    compliance_label: true
+    objective: "Terraform providers must use regions approved for the target compliance boundary."
+    success_criteria: "AWS provider regions are explicitly set to approved GovCloud or organization-approved commercial regions."
+    failure_criteria: "AWS provider regions are missing, dynamic without guardrails, or set outside approved regions."
+    controls: [CM-6, SC-7]
+    severity: MEDIUM
+
+  - id: change-ticket-reference
+    title: "Change Ticket Reference"
+    compliance_label: false
+    objective: "Infrastructure changes should reference an approved change ticket when the repository requires change-management evidence."
+    success_criteria: "The PR, commit, or nearby Terraform context references an approved ticket or exception."
+    failure_criteria: "No change-management reference is present for infrastructure changes."
+    controls: [CM-3]
+    severity: LOW
