@@ -1,3 +1,5 @@
+import { parse as parseYaml } from "yaml";
+
 export type EvidenceSource =
   | "terraform"
   | "github_workflow"
@@ -285,6 +287,271 @@ export function extractTerraformEvidenceFromText(
         }),
       );
     }
+  }
+
+  return facts;
+}
+
+export function extractWorkflowEvidenceFromText(
+  text: string,
+  path: string,
+): EvidenceFact[] {
+  const parsed = (parseYaml(text) ?? {}) as Record<string, unknown>;
+  const workflowName =
+    typeof parsed.name === "string" && parsed.name.trim()
+      ? parsed.name.trim()
+      : path;
+  const onValue = parsed.on;
+  const triggers = Array.isArray(onValue)
+    ? onValue.filter((item): item is string => typeof item === "string")
+    : typeof onValue === "string"
+      ? [onValue]
+      : onValue && typeof onValue === "object"
+        ? Object.keys(onValue)
+        : [];
+  const jobs =
+    parsed.jobs && typeof parsed.jobs === "object"
+      ? (parsed.jobs as Record<string, unknown>)
+      : {};
+  const permissions =
+    parsed.permissions && typeof parsed.permissions === "object"
+      ? parsed.permissions
+      : undefined;
+  const facts: EvidenceFact[] = [
+    fact({
+      id: `workflow.${slug(workflowName)}.triggers`,
+      type: "ci_control",
+      source: "github_workflow",
+      path,
+      line: 1,
+      subject: workflowName,
+      summary: `${workflowName} workflow defines ${triggers.length} trigger(s).`,
+      controls: ["CM-3", "SA-10"],
+      disposition: triggers.length > 0 ? "observed" : "missing",
+      metadata: { triggers },
+    }),
+    fact({
+      id: `workflow.${slug(workflowName)}.jobs`,
+      type: "ci_control",
+      source: "github_workflow",
+      path,
+      line: 1,
+      subject: workflowName,
+      summary: `${workflowName} workflow defines ${Object.keys(jobs).length} job(s).`,
+      controls: ["CM-3", "SA-10"],
+      disposition: Object.keys(jobs).length > 0 ? "observed" : "missing",
+      metadata: { jobs: Object.keys(jobs), permissions },
+    }),
+  ];
+
+  const testCommandIndex = text.search(/npm\s+run\s+typecheck|npm\s+test/);
+  if (testCommandIndex >= 0 || /npm\s+run\s+test/.test(text)) {
+    facts.push(
+      fact({
+        id: `workflow.${slug(workflowName)}.tests`,
+        type: "ci_control",
+        source: "github_workflow",
+        path,
+        line: lineFor(text, Math.max(testCommandIndex, 0)),
+        subject: workflowName,
+        summary: `${workflowName} runs typecheck or tests.`,
+        controls: ["CM-3", "SA-10"],
+        disposition: "observed",
+        metadata: { command_pattern: "npm test/typecheck" },
+      }),
+    );
+  }
+
+  const artifactIndex = text.indexOf("actions/upload-artifact@");
+  if (artifactIndex >= 0) {
+    facts.push(
+      fact({
+        id: `workflow.${slug(workflowName)}.artifact-upload`,
+        type: "artifact_retention",
+        source: "github_workflow",
+        path,
+        line: lineFor(text, artifactIndex),
+        subject: workflowName,
+        summary: `${workflowName} uploads a review artifact.`,
+        controls: ["AU-6", "AU-12"],
+        disposition: "observed",
+        metadata: { action: "actions/upload-artifact" },
+      }),
+    );
+  }
+
+  return facts;
+}
+
+export function extractPackageEvidence(
+  packageJson: Record<string, unknown>,
+  lockfilePresent: boolean,
+  path = "package.json",
+): EvidenceFact[] {
+  const dependencies =
+    packageJson.dependencies && typeof packageJson.dependencies === "object"
+      ? Object.keys(packageJson.dependencies)
+      : [];
+  const devDependencies =
+    packageJson.devDependencies &&
+    typeof packageJson.devDependencies === "object"
+      ? Object.keys(packageJson.devDependencies)
+      : [];
+  const scripts =
+    packageJson.scripts && typeof packageJson.scripts === "object"
+      ? (packageJson.scripts as Record<string, unknown>)
+      : {};
+  const facts: EvidenceFact[] = [
+    fact({
+      id: "package.package-json.dependency-manifest",
+      type: "dependency_manifest",
+      source: "package_manifest",
+      path,
+      subject: "package.json",
+      summary: `package.json declares ${dependencies.length} runtime and ${devDependencies.length} development dependencies.`,
+      controls: ["SA-12", "CM-6", "SI-2"],
+      disposition: lockfilePresent ? "observed" : "warning",
+      metadata: {
+        dependency_count: dependencies.length,
+        dev_dependency_count: devDependencies.length,
+        lockfile_present: lockfilePresent,
+        engines: packageJson.engines ?? {},
+      },
+    }),
+  ];
+
+  for (const scriptName of ["test", "typecheck", "scan", "review"]) {
+    if (typeof scripts[scriptName] === "string") {
+      facts.push(
+        fact({
+          id: `package.scripts.${scriptName}`,
+          type: "ci_control",
+          source: "package_manifest",
+          path,
+          subject: `package.json:scripts.${scriptName}`,
+          summary: `package.json defines the ${scriptName} script.`,
+          controls: ["CM-3", "SA-10"],
+          disposition: "observed",
+          metadata: { command: scripts[scriptName] },
+        }),
+      );
+    }
+  }
+
+  return facts;
+}
+
+export function extractCodeownersEvidence(
+  input:
+    | {
+        path: string;
+        text: string;
+      }
+    | undefined,
+): EvidenceFact[] {
+  if (!input) {
+    return [
+      fact({
+        id: "codeowners.missing",
+        type: "ownership_metadata",
+        source: "codeowners",
+        path: "CODEOWNERS",
+        subject: "CODEOWNERS",
+        summary: "No CODEOWNERS file was found.",
+        controls: ["CM-3", "CM-5", "AC-6"],
+        disposition: "missing",
+        metadata: {},
+      }),
+    ];
+  }
+
+  const rules = input.text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"));
+
+  return [
+    fact({
+      id: "codeowners.present",
+      type: "ownership_metadata",
+      source: "codeowners",
+      path: input.path,
+      subject: "CODEOWNERS",
+      summary: `CODEOWNERS defines ${rules.length} ownership rule(s).`,
+      controls: ["CM-3", "CM-5", "AC-6"],
+      disposition: rules.length > 0 ? "observed" : "warning",
+      metadata: { rule_count: rules.length },
+    }),
+  ];
+}
+
+export function extractLocalPolicyEvidence(input: {
+  profile?: Record<string, unknown>;
+  localChecklist?: Record<string, unknown>;
+  orgChecklist?: Record<string, unknown>;
+  mappings?: Record<string, unknown>;
+}): EvidenceFact[] {
+  const facts: EvidenceFact[] = [];
+  const inherited = Array.isArray(input.profile?.inherited_controls)
+    ? input.profile.inherited_controls
+    : [];
+
+  if (input.profile) {
+    facts.push(
+      fact({
+        id: "local-policy.profile",
+        type: "local_policy",
+        source: "local_policy",
+        path: ".controlbot/profile.yaml",
+        subject: ".controlbot/profile.yaml",
+        summary: `ControlBot profile selects ${String(input.profile.baseline ?? "unknown")} baseline.`,
+        controls: ["PL-2", "CA-2", "CM-6"],
+        disposition: "observed",
+        metadata: {
+          baseline: input.profile.baseline,
+          inherited_controls: inherited,
+        },
+      }),
+    );
+  }
+
+  for (const [key, policyPath] of [
+    ["localChecklist", ".controlbot/checklist.yaml"],
+    ["orgChecklist", ".controlbot/org/checklist.yaml"],
+  ] as const) {
+    const checklist = input[key];
+    const rules = Array.isArray(checklist?.pr_compliances)
+      ? checklist.pr_compliances
+      : [];
+    facts.push(
+      fact({
+        id: `local-policy.${slug(policyPath)}`,
+        type: "local_policy",
+        source: "local_policy",
+        path: policyPath,
+        subject: policyPath,
+        summary: `${policyPath} defines ${rules.length} custom compliance rule(s).`,
+        controls: ["CM-3", "RA-5"],
+        disposition: checklist ? "observed" : "missing",
+        metadata: { rule_count: rules.length },
+      }),
+    );
+  }
+
+  if (input.mappings) {
+    facts.push(
+      fact({
+        id: "local-policy.checkov-to-nist-mapping",
+        type: "local_policy",
+        source: "local_policy",
+        path: "mappings/checkov-to-nist.yaml",
+        subject: "mappings/checkov-to-nist.yaml",
+        summary: `Checkov-to-NIST mapping defines ${Object.keys(input.mappings).length} mapping(s).`,
+        controls: ["PL-2", "CM-6"],
+        disposition: "observed",
+        metadata: { mapping_count: Object.keys(input.mappings).length },
+      }),
+    );
   }
 
   return facts;
