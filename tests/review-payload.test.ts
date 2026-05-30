@@ -5,6 +5,7 @@ import type {
   CustomComplianceAssessment,
   CustomComplianceResults,
 } from "../src/custom-compliance.js";
+import type { EvidenceDocument } from "../src/evidence.js";
 import type { ControlBotProfile } from "../src/profile.js";
 
 const profile: ControlBotProfile = {
@@ -93,6 +94,51 @@ function customFailure(): CustomComplianceResults {
   };
 }
 
+const evidenceDocument: EvidenceDocument = {
+  schema: "controlbot.evidence-facts.v1",
+  generated_at: "2026-05-30T00:00:00.000Z",
+  summary: {
+    total: 2,
+    observed: 1,
+    missing: 1,
+    warnings: 0,
+    not_applicable: 0,
+    by_source: {
+      codeowners: 1,
+      terraform: 1,
+    },
+    by_control_family: {
+      CM: 2,
+    },
+  },
+  facts: [
+    {
+      id: "codeowners.missing",
+      type: "ownership_metadata",
+      source: "codeowners",
+      path: "CODEOWNERS",
+      subject: "CODEOWNERS",
+      summary: "No CODEOWNERS file was found.",
+      controls: ["CM-3"],
+      confidence: "deterministic",
+      disposition: "missing",
+      metadata: {},
+    },
+    {
+      id: "terraform.provider.aws.region.us-gov-west-1",
+      type: "configuration_baseline",
+      source: "terraform",
+      path: "fixtures/terraform/main.tf",
+      subject: "provider.aws",
+      summary: "AWS provider region is us-gov-west-1.",
+      controls: ["CM-6"],
+      confidence: "deterministic",
+      disposition: "observed",
+      metadata: { region: "us-gov-west-1" },
+    },
+  ],
+};
+
 test("review payload includes managed labels for deterministic and custom compliance findings", () => {
   const payload = buildReviewPayload([finding()], profile, customFailure());
   const labels = payload.labels.map((label) => label.name);
@@ -128,4 +174,26 @@ test("review payload removes blocking label when only nonblocking findings remai
 
   assert.equal(payload.event, "COMMENT");
   assert.deepEqual(labels, ["controlbot:family-CM", "effort:2"]);
+});
+
+test("review payload includes evidence summary without changing finding stats", () => {
+  const payload = buildReviewPayload(
+    [
+      finding({
+        severity: "LOW",
+        nistControls: ["CM-6"],
+        nistFamily: "CM",
+      }),
+    ],
+    profile,
+    undefined,
+    evidenceDocument,
+  );
+
+  assert.equal(payload.stats.total, 1);
+  assert.equal(payload.stats.blocking, 0);
+  assert.equal(payload.evidence?.summary.total, 2);
+  assert.equal(payload.evidence?.summary.missing, 1);
+  assert.match(payload.body, /### Evidence/);
+  assert.match(payload.body, /Missing evidence: 1/);
 });

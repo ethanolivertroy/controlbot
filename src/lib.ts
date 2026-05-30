@@ -9,6 +9,7 @@ import type {
   CustomComplianceResults,
   CustomComplianceStatus,
 } from "./custom-compliance.js";
+import type { EvidenceDocument } from "./evidence.js";
 
 export interface NistMappingEntry {
   controls: string[];
@@ -74,6 +75,7 @@ export interface ReviewPayload {
   comments: InlineReviewComment[];
   labels: ReviewLabel[];
   custom_compliance?: CustomComplianceResults;
+  evidence?: EvidenceDocument;
   stats: {
     total: number;
     blocking: number;
@@ -462,10 +464,49 @@ function buildCustomComplianceBody(results?: CustomComplianceResults): string[] 
   return lines;
 }
 
+function topEvidenceFamilies(evidence: EvidenceDocument): string {
+  return Object.entries(evidence.summary.by_control_family)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 5)
+    .map(([family, count]) => `${family}: ${count}`)
+    .join(", ");
+}
+
+function buildEvidenceBody(evidence?: EvidenceDocument): string[] {
+  if (!evidence || evidence.summary.total === 0) return [];
+
+  const families = topEvidenceFamilies(evidence);
+  const missing = evidence.facts
+    .filter((fact) => fact.disposition === "missing")
+    .slice(0, 5);
+  const warnings = evidence.facts
+    .filter((fact) => fact.disposition === "warning")
+    .slice(0, 5);
+  const lines = [
+    "### Evidence",
+    "",
+    `Facts: ${evidence.summary.total} · Observed: ${evidence.summary.observed} · Missing evidence: ${evidence.summary.missing} · Warnings: ${evidence.summary.warnings}`,
+    families ? `Control families: ${families}` : "",
+  ].filter(Boolean);
+
+  for (const item of [...missing, ...warnings]) {
+    lines.push(
+      `- ${item.disposition.toUpperCase()} ${item.subject}: ${item.summary}`,
+    );
+  }
+
+  lines.push(
+    "",
+    "_Evidence facts are deterministic repo observations and are not mixed into Checkov findings._",
+  );
+  return lines;
+}
+
 export function buildReviewPayload(
   findings: EnrichedFinding[],
   profile: ControlBotProfile,
   customCompliance?: CustomComplianceResults,
+  evidence?: EvidenceDocument,
 ): ReviewPayload {
   const active = findings.filter((f) => !f.inherited);
   const inheritedSkipped = findings.length - active.length;
@@ -508,6 +549,7 @@ export function buildReviewPayload(
     controlSummary || "_No mapped control gaps._",
     "",
     ...buildCustomComplianceBody(customCompliance),
+    ...buildEvidenceBody(evidence),
     "",
     inheritedSkipped > 0
       ? `_Skipped ${inheritedSkipped} finding(s) mapped only to inherited controls._`
@@ -547,6 +589,7 @@ export function buildReviewPayload(
       customCompliance,
     ),
     custom_compliance: customCompliance,
+    evidence,
     stats: {
       total: active.length,
       blocking: blocking.length,
@@ -576,6 +619,7 @@ export function buildAgentPrompt(
   profile: ControlBotProfile,
   customChecklist?: CustomComplianceChecklist,
   customCompliance?: CustomComplianceResults,
+  evidence?: EvidenceDocument,
 ): string {
   const active = findings.filter((f) => !f.inherited);
   const controlSummary = summarizeByControl(active);
@@ -590,6 +634,7 @@ export function buildAgentPrompt(
     null,
     2,
   );
+  const evidenceJson = JSON.stringify(evidence?.facts ?? [], null, 2);
   const controlBlocks = controlSummary
     .map(([control, items]) => {
       const lines = items
@@ -610,6 +655,7 @@ export function buildAgentPrompt(
 - Group output by NIST control family (AC, AU, CM, SC, etc.).
 - Provide concrete HCL remediation snippets where possible.
 - Keep deterministic Checkov/NIST findings separate from custom compliance assessments.
+- Treat evidence facts as repo observations, not scanner findings.
 - Baseline: ${profile.baseline}
 - Inherited controls (do not flag): ${profile.inherited_controls.join(", ") || "none"}
 - Mark unmapped scanner checks separately.
@@ -629,6 +675,9 @@ ${customChecklist?.rules.length ? customChecklistJson : "_No custom compliance c
 ## Custom compliance assessment results
 ${customCompliance?.assessments.length ? customComplianceJson : "_No custom compliance assessment results._"}
 
+## Evidence facts
+${evidence?.facts.length ? evidenceJson : "_No evidence facts extracted._"}
+
 ## Required report sections
 1. **Executive summary** — count by severity, top 3 risks
 2. **Control coverage matrix** — table: Control | Status (Fail/Partial/Pass) | Evidence | Gap
@@ -636,6 +685,7 @@ ${customCompliance?.assessments.length ? customComplianceJson : "_No custom comp
 4. **Unmapped checks** — scanner hits without NIST mapping
 5. **Recommended next steps** — CI gates, module swaps, inheritance documentation
 6. **Custom compliance assessment** — separate table: Rule | Source | Status | Evidence | Remediation
+7. **Evidence facts** — deterministic repo observations, separated from findings
 
 Write the report in Markdown. Be specific and cite resource names from the scan.`;
 }

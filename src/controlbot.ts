@@ -12,6 +12,7 @@ import {
   loadCheckovFindings,
   loadNistMappings,
 } from "./lib.js";
+import { buildEvidenceDocument, collectEvidenceFacts } from "./evidence.js";
 import { loadControlBotProfile } from "./profile.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -23,6 +24,7 @@ function parseArgs(argv: string[]) {
     findingsPath: resolve(ROOT, "findings.json"),
     payloadPath: resolve(ROOT, "review-payload.json"),
     customResultsPath: resolve(ROOT, "custom-compliance-results.json"),
+    evidencePath: resolve(ROOT, "evidence-facts.json"),
     orgChecklistPath: undefined as string | undefined,
     changedFiles: [] as string[],
   };
@@ -36,6 +38,8 @@ function parseArgs(argv: string[]) {
       args.payloadPath = resolve(argv[++i]);
     else if (arg === "--custom-results" && argv[i + 1])
       args.customResultsPath = resolve(argv[++i]);
+    else if (arg === "--evidence" && argv[i + 1])
+      args.evidencePath = resolve(argv[++i]);
     else if (arg === "--org-checklist" && argv[i + 1])
       args.orgChecklistPath = resolve(argv[++i]);
     else if (arg === "--changed-file" && argv[i + 1])
@@ -53,6 +57,7 @@ Options:
   --findings <path>        Checkov JSON output
   --payload <path>         Output review payload JSON
   --custom-results <path>  Custom compliance results JSON
+  --evidence <path>        Evidence facts JSON output
   --org-checklist <path>   Shared org custom compliance checklist
   --changed-file <path>    Limit to PR-changed file (repeatable)
   --changed-files <csv>    Comma-separated changed files
@@ -78,6 +83,10 @@ async function main() {
   const checks = await loadCheckovFindings(args.findingsPath);
 
   let findings = enrichFindings(checks, mappings, profile, args.scanDir);
+  const evidence = buildEvidenceDocument(
+    await collectEvidenceFacts({ root: ROOT, scanDir: args.scanDir }),
+  );
+  await writeFile(args.evidencePath, JSON.stringify(evidence, null, 2), "utf8");
 
   if (args.changedFiles.length > 0) {
     findings = filterFindingsForPr(findings, args.changedFiles);
@@ -86,7 +95,12 @@ async function main() {
     );
   }
 
-  const payload = buildReviewPayload(findings, profile, customCompliance);
+  const payload = buildReviewPayload(
+    findings,
+    profile,
+    customCompliance,
+    evidence,
+  );
   await writeFile(args.payloadPath, JSON.stringify(payload, null, 2), "utf8");
 
   console.log(`Review event: ${payload.event}`);
@@ -98,6 +112,10 @@ async function main() {
       `Custom compliance: ${customCompliance.stats.configured} effective (${customCompliance.stats.org_rules} org, ${customCompliance.stats.local_rules} local), ${customCompliance.stats.failed} failed, ${customCompliance.stats.blocking} blocking`,
     );
   }
+  console.log(
+    `Evidence: ${evidence.summary.total} facts, ${evidence.summary.missing} missing, ${evidence.summary.warnings} warning(s)`,
+  );
+  console.log(`Wrote ${args.evidencePath}`);
   console.log(`Wrote ${args.payloadPath}`);
 
   process.exit(payload.event === "REQUEST_CHANGES" ? 2 : 0);

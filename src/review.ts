@@ -15,6 +15,11 @@ import {
   loadCheckovFindings,
   loadNistMappings,
 } from "./lib.js";
+import {
+  buildEvidenceDocument,
+  collectEvidenceFacts,
+  type EvidenceDocument,
+} from "./evidence.js";
 import { loadControlBotProfile } from "./profile.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -26,6 +31,7 @@ function parseArgs(argv: string[]) {
     findingsPath: resolve(ROOT, "findings.json"),
     reportPath: resolve(ROOT, "report.md"),
     customResultsPath: resolve(ROOT, "custom-compliance-results.json"),
+    evidencePath: resolve(ROOT, "evidence-facts.json"),
     orgChecklistPath: undefined as string | undefined,
     scanOnly: false,
     failOnFindings: false,
@@ -41,6 +47,8 @@ function parseArgs(argv: string[]) {
       args.reportPath = resolve(argv[++i]);
     else if (arg === "--custom-results" && argv[i + 1])
       args.customResultsPath = resolve(argv[++i]);
+    else if (arg === "--evidence" && argv[i + 1])
+      args.evidencePath = resolve(argv[++i]);
     else if (arg === "--org-checklist" && argv[i + 1])
       args.orgChecklistPath = resolve(argv[++i]);
     else if (arg === "--scan-only") args.scanOnly = true;
@@ -55,6 +63,7 @@ Options:
   --report <path>     Markdown report output (default: report.md)
   --custom-results <path>
                       Custom compliance JSON output (default: custom-compliance-results.json)
+  --evidence <path>  Evidence facts JSON output (default: evidence-facts.json)
   --org-checklist <path>
                       Shared org custom compliance checklist
   --scan-only         Skip Cursor agent; write scan summary only
@@ -72,6 +81,7 @@ async function writeScanOnlyReport(
   reportPath: string,
   findings: ReturnType<typeof enrichFindings>,
   customCompliance: CustomComplianceResults,
+  evidence: EvidenceDocument,
 ) {
   const lines = [
     "# Terraform NIST Scan Summary (scan-only)",
@@ -108,6 +118,24 @@ async function writeScanOnlyReport(
         `| ${assessment.title} | ${source} | ${assessment.controls.join(", ") || "-"} | ${assessment.status} |`,
       );
     }
+  }
+
+  lines.push(
+    "",
+    "## Evidence Facts",
+    "",
+    `Facts: **${evidence.summary.total}**`,
+    `Observed: **${evidence.summary.observed}**`,
+    `Missing: **${evidence.summary.missing}**`,
+    `Warnings: **${evidence.summary.warnings}**`,
+    "",
+    "| Source | Disposition | Subject | Controls | Summary |",
+    "| --- | --- | --- | --- | --- |",
+  );
+  for (const fact of evidence.facts.slice(0, 25)) {
+    lines.push(
+      `| ${fact.source} | ${fact.disposition} | ${fact.subject} | ${fact.controls.join(", ") || "-"} | ${fact.summary.replace(/\|/g, "\\|")} |`,
+    );
   }
 
   lines.push(
@@ -174,6 +202,10 @@ async function main() {
   const checks = await loadCheckovFindings(args.findingsPath);
   const findings = enrichFindings(checks, mappings, profile, args.scanDir);
   let customCompliance = buildUnassessedCustomComplianceResults(checklist);
+  const evidence = buildEvidenceDocument(
+    await collectEvidenceFacts({ root: ROOT, scanDir: args.scanDir }),
+  );
+  await writeFile(args.evidencePath, JSON.stringify(evidence, null, 2), "utf8");
 
   console.log(
     `Loaded ${findings.length} failed check(s) from ${args.findingsPath}`,
@@ -193,9 +225,15 @@ async function main() {
       JSON.stringify(customCompliance, null, 2),
       "utf8",
     );
-    await writeScanOnlyReport(args.reportPath, findings, customCompliance);
+    await writeScanOnlyReport(
+      args.reportPath,
+      findings,
+      customCompliance,
+      evidence,
+    );
     console.log(`Wrote ${args.reportPath}`);
     console.log(`Wrote ${args.customResultsPath}`);
+    console.log(`Wrote ${args.evidencePath}`);
     const shouldFail =
       args.failOnFindings &&
       findings.some((f) => f.severity === "HIGH" || f.severity === "CRITICAL");
@@ -232,6 +270,7 @@ async function main() {
       profile,
       checklist,
       customCompliance,
+      evidence,
     );
 
     const result = await Agent.prompt(prompt, {
@@ -256,6 +295,7 @@ async function main() {
     await writeFile(args.reportPath, report, "utf8");
     console.log(`Wrote ${args.reportPath}`);
     console.log(`Wrote ${args.customResultsPath}`);
+    console.log(`Wrote ${args.evidencePath}`);
     process.exit(0);
   } catch (err) {
     if (err instanceof CursorAgentError) {
