@@ -1,7 +1,11 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildEvidenceDocument,
+  collectEvidenceFacts,
   extractCodeownersEvidence,
   extractLocalPolicyEvidence,
   extractPackageEvidence,
@@ -220,4 +224,41 @@ test("extracts local policy evidence from ControlBot config", () => {
         fact.metadata.mapping_count === 2,
     ),
   );
+});
+
+test("collects evidence facts from a repo tree", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "controlbot-evidence-"));
+  try {
+    await writeFile(
+      join(dir, "package.json"),
+      JSON.stringify({
+        name: "demo",
+        scripts: { test: "node --test" },
+        dependencies: { yaml: "^2.8.1" },
+      }),
+      "utf8",
+    );
+    await writeFile(join(dir, "package-lock.json"), "{}", "utf8");
+    await writeFile(
+      join(dir, "main.tf"),
+      'provider "aws" { region = "us-gov-west-1" }',
+      "utf8",
+    );
+
+    const facts = await collectEvidenceFacts({
+      root: dir,
+      scanDir: dir,
+    });
+
+    assert.ok(facts.some((fact) => fact.source === "terraform"));
+    assert.ok(facts.some((fact) => fact.source === "package_manifest"));
+    assert.ok(
+      facts.some(
+        (fact) =>
+          fact.source === "codeowners" && fact.disposition === "missing",
+      ),
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

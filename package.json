@@ -6,6 +6,7 @@
   "description": "ControlBot — Bugbot-style inline compliance review for infrastructure-as-code (NIST 800-53, Cursor SDK)",
   "scripts": {
     "scan": "bash scripts/scan.sh",
+    "evidence": "tsx src/evidence.ts",
     "review": "tsx src/review.ts",
     "controlbot": "tsx src/controlbot.ts",
     "poam": "tsx src/poam.ts",

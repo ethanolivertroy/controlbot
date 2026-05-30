@@ -1,4 +1,10 @@
+import { readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { dirname, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = resolve(__dirname, "..");
 
 export type EvidenceSource =
   | "terraform"
@@ -555,4 +561,181 @@ export function extractLocalPolicyEvidence(input: {
   }
 
   return facts;
+}
+
+export interface CollectEvidenceOptions {
+  root?: string;
+  scanDir?: string;
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readJsonIfExists(
+  path: string,
+): Promise<Record<string, unknown> | undefined> {
+  if (!(await fileExists(path))) return undefined;
+  return JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+}
+
+async function readYamlIfExists(
+  path: string,
+): Promise<Record<string, unknown> | undefined> {
+  if (!(await fileExists(path))) return undefined;
+  return (parseYaml(await readFile(path, "utf8")) ?? {}) as Record<
+    string,
+    unknown
+  >;
+}
+
+async function findFiles(dir: string, suffixes: string[]): Promise<string[]> {
+  if (!(await fileExists(dir))) return [];
+
+  const entries = await readdir(dir, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === "node_modules" || entry.name === ".git") continue;
+      files.push(...(await findFiles(full, suffixes)));
+    } else if (suffixes.some((suffix) => entry.name.endsWith(suffix))) {
+      files.push(full);
+    }
+  }
+  return files;
+}
+
+function repoPath(root: string, path: string): string {
+  return relative(root, path).replace(/\\/g, "/") || path;
+}
+
+export async function collectEvidenceFacts(
+  options: CollectEvidenceOptions = {},
+): Promise<EvidenceFact[]> {
+  const root = resolve(options.root ?? ROOT);
+  const scanDir = resolve(options.scanDir ?? join(root, "fixtures/terraform"));
+  const facts: EvidenceFact[] = [];
+
+  for (const tfPath of await findFiles(scanDir, [".tf"])) {
+    facts.push(
+      ...extractTerraformEvidenceFromText(
+        await readFile(tfPath, "utf8"),
+        repoPath(root, tfPath),
+      ),
+    );
+  }
+
+  const workflowDir = join(root, ".github/workflows");
+  for (const workflowPath of await findFiles(workflowDir, [".yml", ".yaml"])) {
+    facts.push(
+      ...extractWorkflowEvidenceFromText(
+        await readFile(workflowPath, "utf8"),
+        repoPath(root, workflowPath),
+      ),
+    );
+  }
+
+  const packageJson = await readJsonIfExists(join(root, "package.json"));
+  if (packageJson) {
+    facts.push(
+      ...extractPackageEvidence(
+        packageJson,
+        await fileExists(join(root, "package-lock.json")),
+        "package.json",
+      ),
+    );
+  }
+
+  let codeowners:
+    | {
+        path: string;
+        text: string;
+      }
+    | undefined;
+  for (const candidate of [
+    "CODEOWNERS",
+    ".github/CODEOWNERS",
+    "docs/CODEOWNERS",
+  ]) {
+    const full = join(root, candidate);
+    if (await fileExists(full)) {
+      codeowners = { path: candidate, text: await readFile(full, "utf8") };
+      break;
+    }
+  }
+  facts.push(...extractCodeownersEvidence(codeowners));
+
+  facts.push(
+    ...extractLocalPolicyEvidence({
+      profile: await readYamlIfExists(join(root, ".controlbot/profile.yaml")),
+      localChecklist: await readYamlIfExists(
+        join(root, ".controlbot/checklist.yaml"),
+      ),
+      orgChecklist: await readYamlIfExists(
+        join(root, ".controlbot/org/checklist.yaml"),
+      ),
+      mappings: await readYamlIfExists(
+        join(root, "mappings/checkov-to-nist.yaml"),
+      ),
+    }),
+  );
+
+  return facts;
+}
+
+function parseArgs(argv: string[]) {
+  const args = {
+    root: ROOT,
+    scanDir: resolve(ROOT, "fixtures/terraform"),
+    output: resolve(ROOT, "evidence-facts.json"),
+  };
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--root" && argv[i + 1]) {
+      args.root = resolve(argv[++i]);
+    } else if (arg === "--scan-dir" && argv[i + 1]) {
+      args.scanDir = resolve(argv[++i]);
+    } else if (arg === "--output" && argv[i + 1]) {
+      args.output = resolve(argv[++i]);
+    } else if (arg === "--help") {
+      console.log(`Usage: npm run evidence -- [options]
+
+Options:
+  --root <path>      Repository root
+  --scan-dir <path>  Terraform scan directory
+  --output <path>    Evidence JSON output
+`);
+      process.exit(0);
+    }
+  }
+
+  return args;
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const facts = await collectEvidenceFacts({
+    root: args.root,
+    scanDir: args.scanDir,
+  });
+  const document = buildEvidenceDocument(facts);
+  await writeFile(args.output, JSON.stringify(document, null, 2), "utf8");
+  console.log(
+    `Evidence facts: ${document.summary.total} total, ${document.summary.missing} missing, ${document.summary.warnings} warning(s)`,
+  );
+  console.log(`Wrote ${args.output}`);
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((err: unknown) => {
+    console.error(err);
+    process.exit(1);
+  });
 }
