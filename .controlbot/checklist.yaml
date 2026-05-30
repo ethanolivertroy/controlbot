@@ -1,0 +1,27 @@
+# Qodo-style custom compliance checklist.
+# These rules are evaluated by the Cursor agent and reported separately from
+# deterministic Checkov/NIST findings.
+
+pr_compliances:
+  # Overrides the shared org rule with the same id by adding data-classification expectations.
+  - id: resource-ownership-tags
+    title: "Resource Ownership Tags"
+    compliance_label: true
+    objective: "Terraform-managed AWS resources must identify an owner and data classification for operational accountability."
+    success_criteria: "Each managed AWS resource includes tags with owner and data_classification or inherits them from a clearly referenced module/default tag configuration."
+    failure_criteria: "Managed AWS resources are declared without ownership or data-classification tags and no inherited tagging mechanism is visible."
+    controls: [CM-8, PL-2]
+    severity: MEDIUM
+
+  - id: privileged-network-exposure-justification
+    title: "Privileged Network Exposure Justification"
+    compliance_label: true
+    objective: "Terraform changes that expose privileged access paths must document a business justification or compensating control."
+    success_criteria: "Ingress rules for privileged ports such as SSH or RDP are restricted to approved ranges or include an explicit justification and compensating control."
+    failure_criteria: "Privileged ingress is open broadly without a documented justification or compensating control in nearby code comments or module inputs."
+    controls: [AC-4, SC-7]
+    severity: HIGH
+
+  # Demonstrates a repo-specific decision to disable an inherited org checklist item.
+  - id: change-ticket-reference
+    enabled: false

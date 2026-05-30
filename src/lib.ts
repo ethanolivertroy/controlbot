@@ -4,6 +4,11 @@ import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import type { ControlBotProfile } from "./profile.js";
 import { isFullyInherited } from "./profile.js";
+import type {
+  CustomComplianceChecklist,
+  CustomComplianceResults,
+  CustomComplianceStatus,
+} from "./custom-compliance.js";
 
 export interface NistMappingEntry {
   controls: string[];
@@ -57,16 +62,35 @@ export interface InlineReviewComment {
   body: string;
 }
 
+export interface ReviewLabel {
+  name: string;
+  color: string;
+  description: string;
+}
+
 export interface ReviewPayload {
   event: "REQUEST_CHANGES" | "COMMENT";
   body: string;
   comments: InlineReviewComment[];
+  labels: ReviewLabel[];
+  custom_compliance?: CustomComplianceResults;
   stats: {
     total: number;
     blocking: number;
     inherited_skipped: number;
     unmapped: number;
     inline_posted: number;
+    custom_compliance?: {
+      configured: number;
+      org_rules: number;
+      local_rules: number;
+      overrides: number;
+      disabled: number;
+      assessed: number;
+      failed: number;
+      blocking: number;
+      unknown: number;
+    };
   };
 }
 
@@ -243,9 +267,205 @@ function groupComments(
   });
 }
 
+function formatCustomComplianceStatus(status: CustomComplianceStatus): string {
+  switch (status) {
+    case "PASS":
+      return "✅ PASS";
+    case "FAIL":
+      return "❌ FAIL";
+    case "NOT_APPLICABLE":
+      return "➖ NOT APPLICABLE";
+    case "UNKNOWN":
+      return "❔ UNKNOWN";
+  }
+}
+
+function familyFromControl(control: string): string | undefined {
+  const match = control.match(/^([A-Z]{2})-/);
+  return match?.[1];
+}
+
+function buildLabel(
+  name: string,
+  color: string,
+  description: string,
+): ReviewLabel {
+  return { name, color, description };
+}
+
+function estimateRemediationEffort(
+  active: EnrichedFinding[],
+  blocking: EnrichedFinding[],
+  unmapped: number,
+  customCompliance?: CustomComplianceResults,
+): number {
+  const high = active.filter((f) => f.severity === "HIGH").length;
+  const critical = active.filter((f) => f.severity === "CRITICAL").length;
+  const medium = active.filter((f) => f.severity === "MEDIUM").length;
+  const customFailed = customCompliance?.stats.failed ?? 0;
+  const customBlocking = customCompliance?.stats.blocking ?? 0;
+
+  if (active.length === 0 && customFailed === 0) return 1;
+  if (
+    critical > 0 ||
+    blocking.length >= 5 ||
+    active.length >= 10 ||
+    customBlocking >= 2
+  ) {
+    return 5;
+  }
+  if (
+    blocking.length >= 2 ||
+    high >= 2 ||
+    customBlocking >= 1 ||
+    customFailed >= 2
+  ) {
+    return 4;
+  }
+  if (
+    blocking.length === 1 ||
+    high === 1 ||
+    medium >= 3 ||
+    customFailed === 1 ||
+    unmapped > 0
+  ) {
+    return 3;
+  }
+  if (medium > 0 || active.length > 0) return 2;
+  return 1;
+}
+
+function buildReviewLabels(
+  active: EnrichedFinding[],
+  blocking: EnrichedFinding[],
+  unmapped: number,
+  shouldBlock: boolean,
+  customCompliance?: CustomComplianceResults,
+): ReviewLabel[] {
+  const labels: ReviewLabel[] = [];
+  const customFailures = customCompliance?.assessments.filter(
+    (assessment) => assessment.status === "FAIL",
+  ) ?? [];
+
+  if (shouldBlock) {
+    labels.push(
+      buildLabel(
+        "controlbot:blocking",
+        "b60205",
+        "ControlBot found merge-blocking compliance issues.",
+      ),
+    );
+  }
+
+  if (customFailures.length > 0) {
+    labels.push(
+      buildLabel(
+        "controlbot:custom-compliance",
+        "5319e7",
+        "ControlBot custom compliance checklist has failing items.",
+      ),
+    );
+  }
+
+  const families = new Set<string>();
+  for (const finding of active) {
+    for (const control of finding.nistControls) {
+      const family = familyFromControl(control);
+      if (family) families.add(family);
+    }
+  }
+  for (const assessment of customFailures) {
+    for (const control of assessment.controls) {
+      const family = familyFromControl(control);
+      if (family) families.add(family);
+    }
+  }
+
+  for (const family of [...families].sort()) {
+    labels.push(
+      buildLabel(
+        `controlbot:family-${family}`,
+        "0969da",
+        `ControlBot found findings mapped to NIST ${family} controls.`,
+      ),
+    );
+  }
+
+  const effort = estimateRemediationEffort(
+    active,
+    blocking,
+    unmapped,
+    customCompliance,
+  );
+  labels.push(
+    buildLabel(
+      `effort:${effort}`,
+      ["0e8a16", "c2e0c6", "fbca04", "d93f0b", "b60205"][effort - 1],
+      `ControlBot remediation effort estimate ${effort} of 5.`,
+    ),
+  );
+
+  return labels;
+}
+
+function buildCustomComplianceBody(results?: CustomComplianceResults): string[] {
+  if (!results || results.stats.configured === 0) return [];
+
+  const sources = results.sources
+    .map(
+      (source) =>
+        `${source.kind}:${source.path} (${source.enabledRules}/${source.configuredRules})`,
+    )
+    .join(", ");
+  const failed = results.assessments.filter((a) => a.status === "FAIL");
+  const unknown = results.assessments.filter((a) => a.status === "UNKNOWN");
+  const assessed = results.stats.assessed > 0;
+  const lines = [
+    "### Custom compliance",
+    "",
+    `**Sources:** ${sources || "_none_"} · **Mode:** ${assessed ? "LLM-assessed" : "not assessed"} · **Failed:** ${results.stats.failed} (${results.stats.blocking} blocking)`,
+    `**Effective rules:** ${results.stats.configured} · **Overrides:** ${results.stats.overrides} · **Disabled inherited:** ${results.stats.disabled}`,
+    "",
+  ];
+
+  if (!assessed) {
+    lines.push(
+      "_Checklist rules are configured, but no Cursor agent assessment artifact was available. Deterministic Checkov/NIST findings are still evaluated above._",
+    );
+    return lines;
+  }
+
+  const rows = [...failed, ...unknown].slice(0, 10);
+  if (rows.length === 0) {
+    lines.push("_No custom compliance failures reported by the Cursor agent._");
+    return lines;
+  }
+
+  for (const assessment of rows) {
+    const controls =
+      assessment.controls.length > 0
+        ? ` · NIST ${assessment.controls.join(", ")}`
+        : "";
+    const provenance =
+      assessment.ruleSource === "local" && assessment.overriddenRuleSource
+        ? "local override"
+        : assessment.ruleSource;
+    lines.push(
+      `- ${formatCustomComplianceStatus(assessment.status)} **${assessment.title}** (${provenance})${controls}: ${assessment.summary}`,
+    );
+  }
+
+  lines.push(
+    "",
+    "_Custom compliance is LLM-assessed policy evidence and is kept separate from deterministic Checkov/NIST findings._",
+  );
+  return lines;
+}
+
 export function buildReviewPayload(
   findings: EnrichedFinding[],
   profile: ControlBotProfile,
+  customCompliance?: CustomComplianceResults,
 ): ReviewPayload {
   const active = findings.filter((f) => !f.inherited);
   const inheritedSkipped = findings.length - active.length;
@@ -257,7 +477,9 @@ export function buildReviewPayload(
   );
 
   const shouldBlock =
-    blocking.length > 0 || unmapped > profile.block_on_unmapped_count;
+    blocking.length > 0 ||
+    unmapped > profile.block_on_unmapped_count ||
+    (customCompliance?.stats.blocking ?? 0) > 0;
 
   const bySeverity = {
     CRITICAL: active.filter((f) => f.severity === "CRITICAL").length,
@@ -285,6 +507,8 @@ export function buildReviewPayload(
     "### Top affected controls",
     controlSummary || "_No mapped control gaps._",
     "",
+    ...buildCustomComplianceBody(customCompliance),
+    "",
     inheritedSkipped > 0
       ? `_Skipped ${inheritedSkipped} finding(s) mapped only to inherited controls._`
       : "",
@@ -293,7 +517,7 @@ export function buildReviewPayload(
       : "",
     "",
     shouldBlock
-      ? "❌ **Merge blocked** — resolve blocking control findings or update `.controlbot/profile.yaml`."
+      ? "❌ **Merge blocked** — resolve blocking control or custom compliance findings."
       : "✅ **No blocking control findings** — review inline comments before merge.",
     "",
     `<details><summary>Full report</summary>`,
@@ -315,12 +539,33 @@ export function buildReviewPayload(
     event: shouldBlock ? "REQUEST_CHANGES" : "COMMENT",
     body,
     comments,
+    labels: buildReviewLabels(
+      active,
+      blocking,
+      unmapped,
+      shouldBlock,
+      customCompliance,
+    ),
+    custom_compliance: customCompliance,
     stats: {
       total: active.length,
       blocking: blocking.length,
       inherited_skipped: inheritedSkipped,
       unmapped,
       inline_posted: comments.length,
+      custom_compliance: customCompliance
+        ? {
+            configured: customCompliance.stats.configured,
+            org_rules: customCompliance.stats.org_rules,
+            local_rules: customCompliance.stats.local_rules,
+            overrides: customCompliance.stats.overrides,
+            disabled: customCompliance.stats.disabled,
+            assessed: customCompliance.stats.assessed,
+            failed: customCompliance.stats.failed,
+            blocking: customCompliance.stats.blocking,
+            unknown: customCompliance.stats.unknown,
+          }
+        : undefined,
     },
   };
 }
@@ -329,10 +574,22 @@ export function buildAgentPrompt(
   findings: EnrichedFinding[],
   scanDir: string,
   profile: ControlBotProfile,
+  customChecklist?: CustomComplianceChecklist,
+  customCompliance?: CustomComplianceResults,
 ): string {
   const active = findings.filter((f) => !f.inherited);
   const controlSummary = summarizeByControl(active);
   const findingsJson = JSON.stringify(active, null, 2);
+  const customChecklistJson = JSON.stringify(
+    customChecklist?.rules ?? [],
+    null,
+    2,
+  );
+  const customComplianceJson = JSON.stringify(
+    customCompliance?.assessments ?? [],
+    null,
+    2,
+  );
   const controlBlocks = controlSummary
     .map(([control, items]) => {
       const lines = items
@@ -352,6 +609,7 @@ export function buildAgentPrompt(
 - For each finding, explain **control intent** (what an assessor tests), not just control IDs.
 - Group output by NIST control family (AC, AU, CM, SC, etc.).
 - Provide concrete HCL remediation snippets where possible.
+- Keep deterministic Checkov/NIST findings separate from custom compliance assessments.
 - Baseline: ${profile.baseline}
 - Inherited controls (do not flag): ${profile.inherited_controls.join(", ") || "none"}
 - Mark unmapped scanner checks separately.
@@ -365,12 +623,19 @@ ${findingsJson}
 ## Findings grouped by control
 ${controlBlocks || "_No failed checks._"}
 
+## Custom compliance checklist
+${customChecklist?.rules.length ? customChecklistJson : "_No custom compliance checklist configured._"}
+
+## Custom compliance assessment results
+${customCompliance?.assessments.length ? customComplianceJson : "_No custom compliance assessment results._"}
+
 ## Required report sections
 1. **Executive summary** — count by severity, top 3 risks
 2. **Control coverage matrix** — table: Control | Status (Fail/Partial/Pass) | Evidence | Gap
 3. **Findings by severity** — HIGH first, with NIST controls and remediation HCL
 4. **Unmapped checks** — scanner hits without NIST mapping
 5. **Recommended next steps** — CI gates, module swaps, inheritance documentation
+6. **Custom compliance assessment** — separate table: Rule | Source | Status | Evidence | Remediation
 
 Write the report in Markdown. Be specific and cite resource names from the scan.`;
 }
