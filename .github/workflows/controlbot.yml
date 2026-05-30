@@ -95,6 +95,11 @@ jobs:
           SCAN_DIR: ${{ steps.scan.outputs.dir }}
         run: npm run scan -- "$SCAN_DIR" findings.json
 
+      - name: Extract repo evidence
+        env:
+          SCAN_DIR: ${{ steps.scan.outputs.dir }}
+        run: npm run evidence -- --scan-dir "$SCAN_DIR"
+
       - name: Enrich with Cursor agent
         env:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
@@ -158,6 +163,7 @@ jobs:
             report.md
             review-payload.json
             custom-compliance-results.json
+            evidence-facts.json
             poam-seeds.json
             poam-seeds.md
 

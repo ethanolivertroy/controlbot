@@ -19,6 +19,7 @@ Built on [Checkov](https://www.checkov.io/) (deterministic facts) + [Cursor SDK]
 ```text
 PR with Terraform
   → Checkov (deterministic scan)
+  → Repo evidence extraction (non-blocking observations)
   → NIST 800-53 mapping
   → ControlBot (inline PR comments + merge gate)
   → Optional: Cursor agent (full report artifact)
@@ -26,6 +27,7 @@ PR with Terraform
 
 The agent **never invents findings** — it enriches Checkov output with control intent and remediation language.
 Custom compliance checks are a separate lane: they are Qodo-style checklist items assessed by the Cursor agent and reported separately from deterministic Checkov/NIST findings.
+Evidence facts are another separate lane: deterministic observations extracted from repo files and surfaced in reports without changing Checkov counts or merge-blocking behavior.
 
 ## Quick start
 
@@ -34,11 +36,13 @@ npm install
 pip install checkov
 
 npm run scan
+npm run evidence
 npm run review -- --scan-only
 npm run controlbot
 npm run poam
 
 cat review-payload.json   # Bugbot-style inline comment payload
+cat evidence-facts.json   # Deterministic repo evidence facts
 cat poam-seeds.md         # POA&M seed summary
 ```
 
@@ -97,6 +101,20 @@ Hierarchical checklist loading:
 
 The effective checklist preserves provenance in `custom-compliance-results.json` and `review-payload.json`: each assessment records whether the active rule came from `org`, `local`, or a `local override`.
 
+## Evidence facts
+
+ControlBot extracts deterministic repo evidence into `evidence-facts.json`. This is a separate non-blocking lane from Checkov findings and custom compliance assessments.
+
+Evidence sources:
+
+- Terraform resources, provider regions, public exposure, tags, and visible encryption attributes
+- GitHub workflow triggers, permissions, test/typecheck steps, and artifact uploads
+- `package.json` / `package-lock.json` dependency and script evidence
+- CODEOWNERS presence or missing ownership evidence
+- `.controlbot/*` policy files and Checkov-to-NIST mapping coverage
+
+Evidence facts appear in `review-payload.json` and the Markdown report, but do not change Checkov finding counts or merge-blocking behavior in v1.
+
 ## PR labels and sticky summary
 
 ControlBot writes a single persistent PR summary comment keyed by `<!-- controlbot-summary -->`, so reruns update the same summary instead of adding a new top-level comment each time.
@@ -132,6 +150,7 @@ Due dates are seeded by severity: CRITICAL 15 days, HIGH 30 days, MEDIUM 60 days
 | Command | Purpose |
 |---------|---------|
 | `npm run scan` | Checkov → `findings.json` |
+| `npm run evidence` | Build `evidence-facts.json` from repo evidence sources |
 | `npm run review` | Agent or scan-only → `report.md` + `custom-compliance-results.json` |
 | `npm run controlbot` | Build PR review payload, exit 2 if blocking |
 | `npm run poam` | Build `poam-seeds.json` + `poam-seeds.md` |
